@@ -1,70 +1,93 @@
 package controllers
 
 import (
-	"example/task_tutorial/data"
-	"example/task_tutorial/models"
+	"errors"
+	"example/taskManager/data"
+	"example/taskManager/models"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
-func GetAllTasks(c *gin.Context) {
-	tasks := data.GetAllTasks()
+type TaskController struct {
+	taskService *data.TaskService
+}
+
+func NewTaskController(mongoURI string) (*TaskController, error) {
+	taskService, err := data.NewTaskService(mongoURI)
+	if err != nil {
+		return nil, err
+	}
+	return &TaskController{
+		taskService: taskService,
+	}, nil
+}
+
+func (tc *TaskController) GetTasks(c *gin.Context) {
+	tasks, err := tc.taskService.GetTasks()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, tasks)
 }
 
-func GetTaskByID(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (tc *TaskController) GetTask(c *gin.Context) {
+	id := c.Param("id")
+	task, err := tc.taskService.GetTask(id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task ID"})
-		return
-	}
-	task, err := data.GetTaskByID(id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, task)
 }
 
-func CreateTask(c *gin.Context) {
+func (tc *TaskController) CreateTask(c *gin.Context) {
 	var task models.Task
 	if err := c.ShouldBindJSON(&task); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	data.CreateTask(&task)
-	c.JSON(http.StatusCreated, task)
+	createdTask, err := tc.taskService.CreateTask(&task)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, createdTask)
 }
 
-func UpdateTask(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task ID"})
-		return
-	}
+func (tc *TaskController) UpdateTask(c *gin.Context) {
+	id := c.Param("id")
 	var updatedTask models.Task
-	if err := c.ShouldBindJSON(&updatedTask); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
+	if err := c.BindJSON(&updatedTask); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := data.UpdateTask(id, &updatedTask); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+
+	err := tc.taskService.UpdateTask(id, &updatedTask)
+	if err != nil {
+		if errors.Is(err, data.ErrTaskNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, updatedTask)
+
+	c.JSON(http.StatusOK, gin.H{"message": "task updated successfully"})
 }
 
-func DeleteTask(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func (tc *TaskController) DeleteTask(c *gin.Context) {
+	id := c.Param("id")
+	err := tc.taskService.DeleteTask(id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid task ID"})
+		if errors.Is(err, data.ErrTaskNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if err := data.DeleteTask(id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
-		return
-	}
-	c.JSON(http.StatusNoContent, nil)
+
+	c.JSON(http.StatusNoContent, gin.H{"message": "task deleted successfully"})
 }
