@@ -2,8 +2,8 @@ package models
 
 import (
 	"time"
-
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"errors"
 )
 
 type Task struct {
@@ -14,11 +14,13 @@ type Task struct {
 	Status      string             `json:"status" bson:"status"`
 }
 
+// CreateTaskFromInputData converts input data into a Task model.
 func CreateTaskFromInputData(inputData map[string]interface{}) (*Task, error) {
-
-	dueDateStr := inputData["duedate"].(string)
-	loc, _ := time.LoadLocation("YourTimeZone")
-	dueDate, err := time.ParseInLocation("2006-01-02", dueDateStr, loc)
+	dueDateStr, ok := inputData["duedate"].(string)
+	if !ok {
+		return nil, errors.New("duedate must be a string")
+	}
+	dueDate, err := time.Parse("2006-01-02", dueDateStr)
 	if err != nil {
 		return nil, err
 	}
@@ -32,3 +34,4 @@ func CreateTaskFromInputData(inputData map[string]interface{}) (*Task, error) {
 
 	return &task, nil
 }
+
