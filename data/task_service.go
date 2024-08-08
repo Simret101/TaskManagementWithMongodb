@@ -1,128 +1,69 @@
 package data
 
 import (
-	"context"
 	"errors"
 	"example/taskManager/models"
-
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"sync"
 )
 
-var ErrTaskNotFound = errors.New("task not found")
+var (
+	tasks  = []models.Task{} // in-memory tasks storage
+	lastID = 0               // tracks the last assigned ID
+	mu     sync.Mutex        // mutex to ensure goroutine safety
+)
 
-type TaskService struct {
-	client     *mongo.Client
-	database   *mongo.Database
-	collection *mongo.Collection
+// retrieves all tasks from the in-memory storage.
+func GetAllTasks() []models.Task {
+	mu.Lock()
+	defer mu.Unlock()
+	return tasks
 }
 
-func NewTaskService(mongoURI string) (*TaskService, error) {
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
-	if err != nil {
-		return nil, err
-	}
-
-	database := client.Database("task_management")
-	collection := database.Collection("tasks")
-
-	return &TaskService{
-		client:     client,
-		database:   database,
-		collection: collection,
-	}, nil
-}
-
-func (ts *TaskService) GetTasks() ([]*models.Task, error) {
-	cursor, err := ts.collection.Find(context.Background(), bson.M{})
-	if err != nil {
-		return nil, err
-	}
-	defer cursor.Close(context.Background())
-
-	var tasks []*models.Task
-	for cursor.Next(context.Background()) {
-		var task models.Task
-		if err := cursor.Decode(&task); err != nil {
-			return nil, err
+// retrieves a specific task by its ID.
+func GetTaskByID(id int) (*models.Task, error) {
+	mu.Lock()
+	defer mu.Unlock()
+	for _, task := range tasks {
+		if task.ID == id {
+			return &task, nil
 		}
-		tasks = append(tasks, &task)
 	}
-
-	return tasks, nil
+	return nil, errors.New("task not found")
 }
 
-func (ts *TaskService) GetTask(id string) (*models.Task, error) {
-	objectID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
-
-	result := ts.collection.FindOne(context.Background(), bson.M{"_id": objectID})
-	if result.Err() != nil {
-		return nil, result.Err()
-	}
-
-	var task models.Task
-	if err := result.Decode(&task); err != nil {
-		return nil, err
-	}
-
-	return &task, nil
+// adds a new task to the in-memory storage.
+func CreateTask(task *models.Task) {
+	mu.Lock()
+	defer mu.Unlock()
+	lastID++
+	task.ID = lastID
+	tasks = append(tasks, *task)
 }
 
-func (ts *TaskService) CreateTask(task *models.Task) (*models.Task, error) {
-	_, err := ts.collection.InsertOne(context.Background(), task)
-	if err != nil {
-		return nil, err
+// modifies an existing task.
+func UpdateTask(id int, updatedTask *models.Task) error {
+	mu.Lock()
+	defer mu.Unlock()
+	for i, task := range tasks {
+		if task.ID == id {
+			updatedTask.ID = id
+			tasks[i] = *updatedTask
+			return nil
+		}
 	}
-
-	return task, nil
+	return errors.New("task not found")
 }
 
-func (ts *TaskService) UpdateTask(id string, updatedTask *models.Task) error {
-	objectID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
+// removes a task from the in-memory storage.
+func DeleteTask(id int) error {
+	mu.Lock()
+	defer mu.Unlock()
+	for i, task := range tasks {
+		if task.ID == id {
+			tasks = append(tasks[:i], tasks[i+1:]...)
+			return nil
+		}
 	}
-
-	update := bson.M{
-		"$set": bson.M{
-			"title":       updatedTask.Title,
-			"description": updatedTask.Description,
-			"duedate":     updatedTask.DueDate,
-			"status":      updatedTask.Status,
-		},
-	}
-
-	result, err := ts.collection.UpdateOne(context.Background(), bson.M{"_id": objectID}, update)
-	if err != nil {
-		return err
-	}
-
-	if result.ModifiedCount == 0 {
-		return errors.New("task not found")
-	}
-
-	return nil
+	return errors.New("task not found")
 }
 
-func (ts *TaskService) DeleteTask(id string) error {
-	objectID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return err
-	}
-
-	result, err := ts.collection.DeleteOne(context.Background(), bson.M{"_id": objectID})
-	if err != nil {
-		return err
-	}
-
-	if result.DeletedCount == 0 {
-		return errors.New("task not found")
-	}
-
-	return nil
-}
