@@ -2,10 +2,11 @@ package router
 
 import (
 	"example/taskManager/controllers"
+
 	"github.com/gin-gonic/gin"
 )
 
-// initializes the Gin router and defines routes for the TaskController.
+// SetupRouter initializes the Gin router and defines routes for the TaskController.
 func SetupRouter(taskController *controllers.TaskController) *gin.Engine {
 	r := gin.Default()
 
@@ -20,4 +21,5 @@ func SetupRouter(taskController *controllers.TaskController) *gin.Engine {
 
 	return r
 }
+
 
